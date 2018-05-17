@@ -1,0 +1,49 @@
+name: animate-frames
+version: '0.0.0'
+github: "jxv/animate-frames"
+license: MIT
+author: "Joe Vargas"
+maintainer: "Joe Vargas"
+
+extra-source-files:
+- CHANGELOG.md
+- LICENSE.md
+- package.yaml
+- README.md
+- stack.yaml
+
+ghc-options: -Wall
+
+library:
+  dependencies:
+  - base
+  - animate
+  - JuicyPixels
+  - yaml
+  source-dirs: library
+
+executables:
+  animate-frames:
+    source-dirs: executable
+    main: Main.hs
+    dependencies:
+    - base
+    - animate-frames
+    ghc-options:
+    - -rtsopts
+    - -threaded
+    - -with-rtsopts=-N
+
+tests:
+  animate-frames-test-suite:
+    source-dirs: test-suite
+    main: Main.hs
+    dependencies:
+    - base
+    - animate-frames
+    - tasty
+    - tasty-hspec
+    ghc-options:
+    - -rtsopts
+    - -threaded
+    - -with-rtsopts=-N
