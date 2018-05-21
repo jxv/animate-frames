@@ -4,6 +4,7 @@ import qualified Data.Map as Map
 import Codec.Picture
 import Codec.Picture.Types (thawImage)
 import Safe (headMay)
+import Data.Maybe (fromMaybe)
 
 import Animate.Frames.Options (getOptions, printUsage, Options(..))
 
@@ -15,35 +16,59 @@ main = do
     Just options -> do
       print options
       let animations = Map.toList (optionsAnimations options)
-      flip mapM animations $ \(key,frames) -> do
+      animations' <- flip mapM animations $ \(key,frames) -> do
+        images <- mapM readImageOrFail frames
+        return (key, map mkCroppedImage images)
+
+      flip mapM_ animations' $ \(key,images) -> do
         print key
-        images <- mapM readImage frames
-        images' <- flip mapM (zip frames images) $ \(frame,image) -> case image of
-          Left _ -> fail $ "Can't load frame"
-          Right image' -> return (frame, image')
-        mapM_ print $ flip map images' $ \(f,i) -> f ++ ": " ++ show (cropCoords i)
-      return ()
+        mapM_ (\CroppedImage{ciCoords,ciOrigin,ciDim} -> print (ciCoords,ciOrigin,ciDim)) images
 
-cropCoords :: DynamicImage -> Maybe ((Int, Int), (Int, Int))
-cropCoords di = case di of
-  ImageY8 i -> cropCoordsImage i
-  ImageY16 i -> cropCoordsImage i
-  ImageYF i -> cropCoordsImage i
-  ImageYA8 i -> cropCoordsImage i
-  ImageYA16 i -> cropCoordsImage i
-  ImageRGB8 i -> cropCoordsImage i
-  ImageRGB16 i -> cropCoordsImage i
-  ImageRGBF i -> cropCoordsImage i
-  ImageRGBA8 i -> cropCoordsImage i
-  ImageRGBA16 i -> cropCoordsImage i
-  ImageYCbCr8 i -> cropCoordsImage i
-  ImageCMYK8 i -> cropCoordsImage i
-  ImageCMYK16 i -> cropCoordsImage i
+readImageOrFail :: FilePath -> IO DynamicImage
+readImageOrFail fp = do
+  img' <- readImage fp
+  case img' of
+    Left _ -> fail $ "Can't load image: " ++ fp
+    Right img -> return img
 
-cropCoordsImage :: (Pixel a, Eq (PixelBaseComponent a)) => Image a -> Maybe ((Int, Int), (Int, Int))
-cropCoordsImage img = (,)
-  <$> ((,) <$> findX0 img <*> findY0 img)
-  <*> ((,) <$> findX1 img <*> findY1 img)
+data CroppedImage = CroppedImage
+  { ciImage :: Image PixelRGBA8
+  , ciCoords :: ((Int, Int), (Int, Int))
+  , ciOrigin :: (Int, Int)
+  , ciDim :: (Int, Int)
+  }
+
+sumDim :: [CroppedImage] -> (Int, Int)
+sumDim = foldr (\CroppedImage{ciDim} (w,h) -> (fst ciDim + w, snd ciDim + h)) (0,0)
+
+maxHeight :: [CroppedImage] -> Int
+maxHeight = maximum . map (snd . ciDim)
+
+minBoundaries :: [CroppedImage] -> (Int, Int)
+minBoundaries images = let
+  dim = sumDim images
+  in (round . sqrt . fromIntegral . fst $ dim, round . sqrt . fromIntegral . snd $ dim)
+
+mkCroppedImage :: DynamicImage -> CroppedImage
+mkCroppedImage di = CroppedImage
+  { ciImage = img
+  , ciCoords = coords
+  , ciOrigin = (imageWidth img `div` 2, imageHeight img `div` 2)
+  , ciDim = croppedImageDim coords
+  }
+  where
+    img = convertRGBA8 di
+    coords = cropCoordsImage img
+
+croppedImageDim :: ((Int, Int), (Int, Int)) -> (Int, Int)
+croppedImageDim ((x0,y0), (x1,y1)) = (x1 - x0, y1 - y0)
+
+cropCoordsImage :: (Pixel a, Eq (PixelBaseComponent a)) => Image a -> ((Int, Int), (Int, Int))
+cropCoordsImage img = fromMaybe ((0,0), (1,1)) maybeCropped
+    where
+      maybeCropped = (,)
+        <$> ((,) <$> findX0 img <*> findY0 img)
+        <*> ((,) <$> findX1 img <*> findY1 img)
 
 firstOpaquePoint :: (Pixel a, Eq (PixelBaseComponent a)) => (Image a -> [(Int, Int)]) -> ((Int, Int) -> Int) -> Image a -> Maybe Int
 firstOpaquePoint mkCoords whichPoint img = fmap fst $ headMay $ filter snd (map getPixel coords)

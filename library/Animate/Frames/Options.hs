@@ -22,8 +22,8 @@ printUsage = do
         , "  --animation Walk walk_0000.png walk_0001.png walk_0002.png"
         , "  --spritesheet sprite.png"
         , "  --metadata sprite.yaml"
-        , ""
         ]
+    putStrLn ""
 
 data Options = Options
     { optionsAnimations :: Map String [String]
