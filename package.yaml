@@ -14,6 +14,11 @@ extra-source-files:
 
 ghc-options: -Wall
 
+default-extensions:
+- NamedFieldPuns
+- OverloadedStrings
+- FlexibleContexts
+
 library:
   dependencies:
   - base
@@ -21,6 +26,8 @@ library:
   - JuicyPixels
   - yaml
   - containers
+  - safe
+  - vector
   source-dirs: library
 
 executables:
