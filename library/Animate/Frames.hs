@@ -1,10 +1,13 @@
 module Animate.Frames where
 
 import qualified Data.Map as Map
+import Data.Map (Map)
 import Codec.Picture
-import Codec.Picture.Types (thawImage)
 import Safe (headMay)
 import Data.Maybe (fromMaybe)
+import Data.List (find)
+import GHC.Float (sqrtFloat)
+import Animate (FrameIndex)
 
 import Animate.Frames.Options (getOptions, printUsage, Options(..))
 
@@ -18,11 +21,11 @@ main = do
       let animations = Map.toList (optionsAnimations options)
       animations' <- flip mapM animations $ \(key,frames) -> do
         images <- mapM readImageOrFail frames
-        return (key, map mkCroppedImage images)
+        return (key, map mkCropImage images)
 
       flip mapM_ animations' $ \(key,images) -> do
         print key
-        mapM_ (\CroppedImage{ciCoords,ciOrigin,ciDim} -> print (ciCoords,ciOrigin,ciDim)) images
+        mapM_ (\CropImage{ciCoords,ciOrigin,ciDim} -> print (ciCoords,ciOrigin,ciDim)) images
 
 readImageOrFail :: FilePath -> IO DynamicImage
 readImageOrFail fp = do
@@ -31,37 +34,145 @@ readImageOrFail fp = do
     Left _ -> fail $ "Can't load image: " ++ fp
     Right img -> return img
 
-data CroppedImage = CroppedImage
+layoutCrops :: Int -> Map String [CropImage] -> Layout
+layoutCrops fps cropImages = Layout size rows animations
+  where
+    size = (0,0)
+    rows = []
+    animations = cropAnimationsToLayoutAnimations fps (cInfoAnimations cropInfo)
+    cropInfo = buildCropInfo cropImages
+
+type Seconds = Float
+
+data Layout = Layout
+  { layoutSize :: (Int, Int)
+  , layoutRows :: [Row]
+  , layoutAnimations :: Map String [(FrameIndex, Seconds)]
+  }
+
+data CropInfo = CropInfo
+  { cInfoAnimations :: Map String [CropFrame]
+  , cInfoImages :: Map CropId CropImage
+  }
+
+cropAnimationsToLayoutAnimations
+  :: Int -- ^ Frames per seconds
+  -> Map String [CropFrame] -- ^ Crop animations
+  -> Map String [(FrameIndex, Seconds)] 
+cropAnimationsToLayoutAnimations fps cropAnimations = fmap
+    (map (\CropFrame{cfCount,cfCropId} -> (cfCropId, sum $ replicate cfCount spf)))
+    cropAnimations
+  where
+    spf = 1 / fromIntegral fps
+
+buildCropInfo :: Map String [CropImage] -> CropInfo
+buildCropInfo animations = let
+  (frames, images) = Map.foldrWithKey build (Map.empty, Map.empty) animations
+  in CropInfo frames images
+  where
+    build
+      :: String
+      -> [CropImage]
+      -> (Map String [CropFrame], Map CropId CropImage)
+      -> (Map String [CropFrame], Map CropId CropImage)
+    build aniName imgs (cropFrames, cropImages) = let
+      (cropImages', cropIds) = insertCropImages imgs cropImages
+      cropFrames' = Map.insert aniName (collapseIntoFrames cropIds) cropFrames
+      in (cropFrames', cropImages')
+
+insertCropImages :: [CropImage] -> Map CropId CropImage -> (Map CropId CropImage, [CropId])
+insertCropImages imgs cropImages = foldr insertCropImagesStep (cropImages, []) imgs
+
+insertCropImagesStep
+  :: CropImage
+  -> (Map CropId CropImage, [CropId])
+  -> (Map CropId CropImage, [CropId])
+insertCropImagesStep cropImage (cropImages, cropIds) = let
+  (cropImages', cropId) = insertCropImage cropImage cropImages
+  in (cropImages',cropIds ++ [cropId])
+
+collapseIntoFrames :: [CropId] -> [CropFrame]
+collapseIntoFrames [] = []
+collapseIntoFrames (x:xs) = let
+  (included, after) = span (== x) xs
+  in CropFrame x (1 + length included) : collapseIntoFrames after
+
+data Row = Row
+  { rowFrames :: [CropFrame]
+  , rowTop :: Int
+  , rowBottom :: Int
+  }
+
+data RowStep = RowStep
+  { rsRow :: Row
+  , rsRemaining :: [CropFrame]
+  }
+
+data CropImage = CropImage
   { ciImage :: Image PixelRGBA8
   , ciCoords :: ((Int, Int), (Int, Int))
   , ciOrigin :: (Int, Int)
   , ciDim :: (Int, Int)
   }
 
-sumDim :: [CroppedImage] -> (Int, Int)
-sumDim = foldr (\CroppedImage{ciDim} (w,h) -> (fst ciDim + w, snd ciDim + h)) (0,0)
+instance Eq CropImage where
+  a == b = and
+    [ eqImagePixelRGBA8 (ciImage a) (ciImage b)
+    , ciCoords a == ciCoords b
+    , ciOrigin a == ciOrigin b
+    , ciDim a == ciDim b
+    ]
 
-maxHeight :: [CroppedImage] -> Int
+type CropId = Int
+
+data CropFrame = CropFrame
+  { cfCropId :: CropId
+  , cfCount :: Int -- Number of sequental and equvialent frames compressed as one
+  } deriving (Show, Eq)
+
+eqImagePixelRGBA8 :: Image PixelRGBA8 -> Image PixelRGBA8 -> Bool
+eqImagePixelRGBA8 a b =
+  imageWidth a == imageWidth b &&
+  imageHeight a == imageHeight b &&
+  imageData a == imageData b
+
+insertCropImage :: CropImage -> Map CropId CropImage -> (Map CropId CropImage, CropId)
+insertCropImage img imgs = case findByElem imgs img of
+  Just cropId -> (imgs, cropId)
+  Nothing -> let
+    cropId = Map.size imgs
+    imgs' = Map.insert cropId img imgs
+    in (imgs', cropId)
+
+findByElem :: Eq a => Map k a -> a -> Maybe k
+findByElem m v = fst <$> find (\(_,w) -> v == w) (Map.toList m)
+
+sumDim :: [CropImage] -> (Int, Int)
+sumDim = foldr (\CropImage{ciDim} (w,h) -> (fst ciDim + w, snd ciDim + h)) (0,0)
+
+maxHeight :: [CropImage] -> Int
 maxHeight = maximum . map (snd . ciDim)
 
-minBoundaries :: [CroppedImage] -> (Int, Int)
+minBoundaries :: [CropImage] -> (Int, Int)
 minBoundaries images = let
   dim = sumDim images
-  in (round . sqrt . fromIntegral . fst $ dim, round . sqrt . fromIntegral . snd $ dim)
+  in ( round . sqrtFloat . fromIntegral . fst $ dim
+     , round . sqrtFloat . fromIntegral . snd $ dim
+     )
 
-mkCroppedImage :: DynamicImage -> CroppedImage
-mkCroppedImage di = CroppedImage
+mkCropImage :: DynamicImage -> CropImage
+mkCropImage di = CropImage
   { ciImage = img
   , ciCoords = coords
   , ciOrigin = (imageWidth img `div` 2, imageHeight img `div` 2)
-  , ciDim = croppedImageDim coords
+  , ciDim = cropImageDim coords
   }
   where
     img = convertRGBA8 di
     coords = cropCoordsImage img
 
-croppedImageDim :: ((Int, Int), (Int, Int)) -> (Int, Int)
-croppedImageDim ((x0,y0), (x1,y1)) = (x1 - x0, y1 - y0)
+cropImageDim :: ((Int, Int), (Int, Int)) -> (Int, Int)
+cropImageDim ((x0,y0), (x1,y1)) = (x1 - x0, y1 - y0)
 
 cropCoordsImage :: (Pixel a, Eq (PixelBaseComponent a)) => Image a -> ((Int, Int), (Int, Int))
 cropCoordsImage img = fromMaybe ((0,0), (1,1)) maybeCropped

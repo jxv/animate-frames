@@ -21,6 +21,7 @@ default-extensions:
 
 library:
   dependencies:
+  - aeson
   - base
   - bytestring
   - animate
@@ -29,6 +30,7 @@ library:
   - containers
   - safe
   - vector
+  - yaml
   source-dirs: library
 
 executables:
