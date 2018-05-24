@@ -29,6 +29,7 @@ library:
   - yaml
   - containers
   - safe
+  - text
   - vector
   - yaml
   source-dirs: library

@@ -2,14 +2,84 @@ module Animate.Frames where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
+import Data.Text (pack)
 import Codec.Picture
 import Safe (headMay)
 import Data.Maybe (fromMaybe)
 import Data.List (find)
 import GHC.Float (sqrtFloat)
-import Animate (FrameIndex)
+import Animate (FrameIndex, SpriteSheetInfo(..))
 
 import Animate.Frames.Options (getOptions, printUsage, Options(..))
+
+type Seconds = Float
+
+data Layout = Layout
+  { layoutSize :: (Int, Int)
+  , layoutRows :: [Row]
+  , layoutAnimations :: Map String [(FrameIndex, Seconds)]
+  }
+
+data CropInfo = CropInfo
+  { cInfoAnimations :: Map String [CropFrame]
+  , cInfoImages :: Map CropId CropImage
+  }
+  
+data Row = Row
+  { rowCropImages :: [CropImage]
+  , rowTop :: Int
+  , rowHeight :: Int
+  , rowWidth :: Int
+  }
+
+data RowStep = RowStep
+  { rsCurrent :: Row
+  , rsFinished :: [Row]
+  }
+
+data CropImage = CropImage
+  { ciImage :: Image PixelRGBA8
+  , ciCoords :: ((Int, Int), (Int, Int))
+  , ciOrigin :: (Int, Int)
+  , ciDim :: (Int, Int)
+  }
+
+instance Eq CropImage where
+  a == b = and
+    [ eqImagePixelRGBA8 (ciImage a) (ciImage b)
+    , ciCoords a == ciCoords b
+    , ciOrigin a == ciOrigin b
+    , ciDim a == ciDim b
+    ]
+
+type CropId = Int
+
+data CropFrame = CropFrame
+  { cfCropId :: CropId
+  , cfCount :: Int -- Number of sequental and equvialent frames compressed as one
+  } deriving (Show, Eq)
+
+data Tree a
+  = Leaf a
+  | Node a (Tree a) (Tree a)
+  deriving (Show, Eq)
+
+data Range = Range
+  { rMin :: Int
+  , rMax :: Int
+  } deriving (Show, Eq)
+
+data HorzNode = HorzNode
+  { hnRange :: Range
+  , hnCropImage :: CropImage
+  }
+
+data VertNode = VertNode
+  { vnRange :: Range
+  , vnHorzTree :: Tree HorzNode
+  }  
+  
+--
 
 main :: IO ()
 main = do
@@ -27,12 +97,22 @@ main = do
         print key
         mapM_ (\CropImage{ciCoords,ciOrigin,ciDim} -> print (ciCoords,ciOrigin,ciDim)) images
 
+--
+
 readImageOrFail :: FilePath -> IO DynamicImage
 readImageOrFail fp = do
   img' <- readImage fp
   case img' of
     Left _ -> fail $ "Can't load image: " ++ fp
     Right img -> return img
+
+layoutToSpriteSheetInfo :: FilePath -> Layout -> SpriteSheetInfo String Seconds
+layoutToSpriteSheetInfo fp layout = SpriteSheetInfo
+  { ssiImage = fp
+  , ssiAlpha = Nothing
+  , ssiClips = []
+  , ssiAnimations = Map.mapKeys pack (layoutAnimations layout)
+  }
 
 layoutCrops :: Int -> Map String [CropImage] -> Layout
 layoutCrops fps cropImages = Layout size rows animations
@@ -42,18 +122,56 @@ layoutCrops fps cropImages = Layout size rows animations
     animations = cropAnimationsToLayoutAnimations fps (cInfoAnimations cropInfo)
     cropInfo = buildCropInfo cropImages
 
-type Seconds = Float
+inRange :: Int -> Range -> Bool
+inRange x r = x >= rMin r && x < rMax r
 
-data Layout = Layout
-  { layoutSize :: (Int, Int)
-  , layoutRows :: [Row]
-  , layoutAnimations :: Map String [(FrameIndex, Seconds)]
-  }
+lessThanRange :: Int -> Range -> Bool
+lessThanRange x r = x < rMin r
 
-data CropInfo = CropInfo
-  { cInfoAnimations :: Map String [CropFrame]
-  , cInfoImages :: Map CropId CropImage
+greaterThanRange :: Int -> Range -> Bool
+greaterThanRange x r = x < rMax r
+
+lookupNodeWithinRange :: (n -> Range) -> Tree n -> Int -> Maybe n
+lookupNodeWithinRange toRange tree x = case tree of
+  Leaf n -> if inRange x (toRange n)
+    then Just n
+    else Nothing
+  Node n left right -> if inRange x (toRange n)
+    then Just n
+    else if lessThanRange x (toRange n)
+      then lookupNodeWithinRange toRange left x
+      else lookupNodeWithinRange toRange right x
+
+mkRows
+  :: (Int, Int) -- Minimum boundaries
+  -> [CropImage]
+  -> [Row]
+mkRows (minX, _) images = rsFinished done ++ [rsCurrent done]
+  where
+    done :: RowStep
+    done = foldr stepRow initRowStep images
+
+    stepRow :: CropImage -> RowStep -> RowStep
+    stepRow ci (RowStep cur finished) = let
+      cur' = appendCropImage cur ci
+      in if minX > rowWidth cur'
+        then RowStep cur' finished
+        else RowStep initRow (finished ++ [cur'])
+
+appendCropImage :: Row -> CropImage -> Row
+appendCropImage row ci = row
+  { rowCropImages = rowCropImages row ++ [ci]
+  , rowHeight = max (rowHeight row) cropImageHeight
+  , rowWidth = rowWidth row + cropImageWidth
   }
+  where
+    (cropImageWidth, cropImageHeight) = ciDim ci
+
+initRow :: Row
+initRow = Row [] 0 0 0
+
+initRowStep :: RowStep
+initRowStep = RowStep initRow []
 
 cropAnimationsToLayoutAnimations
   :: Int -- ^ Frames per seconds
@@ -96,39 +214,6 @@ collapseIntoFrames [] = []
 collapseIntoFrames (x:xs) = let
   (included, after) = span (== x) xs
   in CropFrame x (1 + length included) : collapseIntoFrames after
-
-data Row = Row
-  { rowFrames :: [CropFrame]
-  , rowTop :: Int
-  , rowBottom :: Int
-  }
-
-data RowStep = RowStep
-  { rsRow :: Row
-  , rsRemaining :: [CropFrame]
-  }
-
-data CropImage = CropImage
-  { ciImage :: Image PixelRGBA8
-  , ciCoords :: ((Int, Int), (Int, Int))
-  , ciOrigin :: (Int, Int)
-  , ciDim :: (Int, Int)
-  }
-
-instance Eq CropImage where
-  a == b = and
-    [ eqImagePixelRGBA8 (ciImage a) (ciImage b)
-    , ciCoords a == ciCoords b
-    , ciOrigin a == ciOrigin b
-    , ciDim a == ciDim b
-    ]
-
-type CropId = Int
-
-data CropFrame = CropFrame
-  { cfCropId :: CropId
-  , cfCount :: Int -- Number of sequental and equvialent frames compressed as one
-  } deriving (Show, Eq)
 
 eqImagePixelRGBA8 :: Image PixelRGBA8 -> Image PixelRGBA8 -> Bool
 eqImagePixelRGBA8 a b =
