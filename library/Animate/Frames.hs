@@ -61,7 +61,7 @@ data CropFrame = CropFrame
 
 data Tree a
   = Leaf a
-  | Node a (Tree a) (Tree a)
+  | Node a (Maybe (Tree a)) (Maybe (Tree a))
   deriving (Show, Eq)
 
 data Range = Range
@@ -139,8 +139,8 @@ lookupNodeWithinRange toRange tree x = case tree of
   Node n left right -> if inRange x (toRange n)
     then Just n
     else if lessThanRange x (toRange n)
-      then lookupNodeWithinRange toRange left x
-      else lookupNodeWithinRange toRange right x
+      then left >>= \l -> lookupNodeWithinRange toRange l x
+      else right >>= \r -> lookupNodeWithinRange toRange r x
 
 mkRows
   :: (Int, Int) -- Minimum boundaries
@@ -156,7 +156,7 @@ mkRows (minX, _) images = rsFinished done ++ [rsCurrent done]
       cur' = appendCropImage cur ci
       in if minX > rowWidth cur'
         then RowStep cur' finished
-        else RowStep initRow (finished ++ [cur'])
+        else RowStep initRow{ rowTop = 1 + rowTop cur' + rowHeight cur' } (finished ++ [cur'])
 
 appendCropImage :: Row -> CropImage -> Row
 appendCropImage row ci = row
