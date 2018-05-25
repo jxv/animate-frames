@@ -6,7 +6,7 @@ import Data.Text (pack)
 import Codec.Picture
 import Safe (headMay)
 import Data.Maybe (fromMaybe)
-import Data.List (find)
+import Data.List (find, sortBy)
 import GHC.Float (sqrtFloat)
 import Animate (FrameIndex, SpriteSheetInfo(..))
 
@@ -59,10 +59,11 @@ data CropFrame = CropFrame
   , cfCount :: Int -- Number of sequental and equvialent frames compressed as one
   } deriving (Show, Eq)
 
-data Tree a
-  = Leaf a
-  | Node a (Maybe (Tree a)) (Maybe (Tree a))
+data Tree a = Node a (Maybe (Tree a)) (Maybe (Tree a))
   deriving (Show, Eq)
+
+instance Functor Tree where
+  fmap f (Node a ml mr) = Node (f a) (fmap f <$> ml) (fmap f <$> mr)
 
 data Range = Range
   { rMin :: Int
@@ -77,7 +78,7 @@ data HorzNode = HorzNode
 data VertNode = VertNode
   { vnRange :: Range
   , vnHorzTree :: Tree HorzNode
-  }  
+  }
   
 --
 
@@ -114,13 +115,22 @@ layoutToSpriteSheetInfo fp layout = SpriteSheetInfo
   , ssiAnimations = Map.mapKeys pack (layoutAnimations layout)
   }
 
+generateImageFromLayout :: Layout -> Int -> Int -> PixelRGBA8
+generateImageFromLayout layout x y = fromMaybe (PixelRGBA8 0 0 0 0) (getPixel x y)
+  where
+    tree = buildVertTree (layoutRows layout)
+    getPixel = lookupPixelFromTree tree
+
 layoutCrops :: Int -> Map String [CropImage] -> Layout
 layoutCrops fps cropImages = Layout size rows animations
   where
-    size = (0,0)
-    rows = []
+    size = minBoundaries (concat $ Map.elems cropImages)
+    rows = mkRows size (map snd . sortByIndex . Map.toList $ cInfoImages cropInfo)
     animations = cropAnimationsToLayoutAnimations fps (cInfoAnimations cropInfo)
     cropInfo = buildCropInfo cropImages
+
+sortByIndex :: Ord a => [(a, b)] -> [(a, b)]
+sortByIndex = sortBy (\x y -> compare (fst x) (fst y))
 
 inRange :: Int -> Range -> Bool
 inRange x r = x >= rMin r && x < rMax r
@@ -132,15 +142,32 @@ greaterThanRange :: Int -> Range -> Bool
 greaterThanRange x r = x < rMax r
 
 lookupNodeWithinRange :: (n -> Range) -> Tree n -> Int -> Maybe n
-lookupNodeWithinRange toRange tree x = case tree of
-  Leaf n -> if inRange x (toRange n)
-    then Just n
-    else Nothing
-  Node n left right -> if inRange x (toRange n)
+lookupNodeWithinRange toRange (Node n left right) x =
+  if inRange x (toRange n)
     then Just n
     else if lessThanRange x (toRange n)
       then left >>= \l -> lookupNodeWithinRange toRange l x
       else right >>= \r -> lookupNodeWithinRange toRange r x
+
+lookupPixelFromTree :: Tree VertNode -> Int -> Int -> Maybe PixelRGBA8
+lookupPixelFromTree tree x y = do
+  vn <- lookupNodeWithinRange vnRange tree y
+  hn <- lookupNodeWithinRange hnRange (vnHorzTree vn) x
+  let offset = (rMin (hnRange hn), rMax (vnRange vn))
+  pixelFromCropImage offset (x,y) (hnCropImage hn)
+
+pixelFromCropImage
+  :: (Int, Int) -- ^ Offset
+  -> (Int, Int) -- ^ Spritesheet location
+  -> CropImage
+  -> Maybe PixelRGBA8
+pixelFromCropImage (ofsX,ofsY) (x,y) ci = let
+  (orgX, orgY) = ciOrigin ci
+  (x', y') = (x - ofsX + orgX, y - ofsY + orgY)
+  img = ciImage ci
+  in if x' >= 0 && y' >= 0 && x' < imageWidth img && y' < imageHeight img
+    then Just $ pixelAt img x' y'
+    else Nothing
 
 mkRows
   :: (Int, Int) -- Minimum boundaries
@@ -172,6 +199,34 @@ initRow = Row [] 0 0 0
 
 initRowStep :: RowStep
 initRowStep = RowStep initRow []
+
+buildVertTree :: [Row] -> Tree VertNode
+buildVertTree = fmap rowToVertNode . listToTree
+
+rowToVertNode :: Row -> VertNode
+rowToVertNode row = VertNode
+  { vnRange = Range (rowTop row) (rowTop row + rowHeight row)
+  , vnHorzTree = buildHorzTree row
+  }
+
+buildHorzTree :: Row -> Tree HorzNode
+buildHorzTree = listToTree . fst . foldr stepToHorzNode ([], 0) . rowCropImages
+  where
+    stepToHorzNode :: CropImage -> ([HorzNode], Int) -> ([HorzNode], Int)
+    stepToHorzNode ci (hns, width) = (hns ++ [hn], ciWidth + width)
+      where
+        hn = HorzNode (Range width (width + ciWidth)) ci
+        ciWidth = fst (ciDim ci)
+
+listToTree :: [a] -> Tree a
+listToTree [] = error "Can't build VertTree"
+listToTree xs = Node m left right
+  where
+    len = length xs
+    mid = div len 2
+    (l, m:r) = splitAt mid xs
+    left  = if null l then Nothing else Just (listToTree l)
+    right = if null r then Nothing else Just (listToTree r)
 
 cropAnimationsToLayoutAnimations
   :: Int -- ^ Frames per seconds
