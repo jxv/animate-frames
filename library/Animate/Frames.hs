@@ -5,6 +5,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.IO as T
 import qualified Data.Text as T
 import Text.Printf (printf)
+import Data.List (foldl')
 import Data.Map (Map)
 import Data.Monoid ((<>))
 import Data.Text (pack, Text)
@@ -321,29 +322,29 @@ cropAnimationsToLayoutAnimations fps cropAnimations = fmap
 
 buildCropInfo :: Map String [CropImage] -> CropInfo
 buildCropInfo animations = let
-  (frames, images) = Map.foldrWithKey build (Map.empty, Map.empty) animations
+  (frames, images) = Map.foldlWithKey' build (Map.empty, Map.empty) animations
   in CropInfo frames images
   where
     build
-      :: String
+      :: (Map String [CropFrame], Map CropId CropImage)
+      -> String
       -> [CropImage]
       -> (Map String [CropFrame], Map CropId CropImage)
-      -> (Map String [CropFrame], Map CropId CropImage)
-    build aniName imgs (cropFrames, cropImages) = let
+    build (cropFrames, cropImages) aniName imgs = let
       (cropImages', cropIds) = insertCropImages imgs cropImages
       cropFrames' = Map.insert aniName (collapseIntoFrames cropIds) cropFrames
       in (cropFrames', cropImages')
 
 insertCropImages :: [CropImage] -> Map CropId CropImage -> (Map CropId CropImage, [CropId])
-insertCropImages imgs cropImages = foldr insertCropImagesStep (cropImages, []) imgs
+insertCropImages imgs cropImages = foldl' insertCropImagesStep (cropImages, []) imgs
 
 insertCropImagesStep
-  :: CropImage
+  :: (Map CropId CropImage, [CropId])
+  -> CropImage
   -> (Map CropId CropImage, [CropId])
-  -> (Map CropId CropImage, [CropId])
-insertCropImagesStep cropImage (cropImages, cropIds) = let
+insertCropImagesStep (cropImages, cropIds) cropImage = let
   (cropImages', cropId) = insertCropImage cropImage cropImages
-  in (cropImages',cropIds ++ [cropId])
+  in (cropImages', cropIds ++ [cropId])
 
 collapseIntoFrames :: [CropId] -> [CropFrame]
 collapseIntoFrames [] = []
