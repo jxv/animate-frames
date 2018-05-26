@@ -26,6 +26,7 @@ library:
   - bytestring
   - animate
   - JuicyPixels
+  - JuicyPixels-repa
   - yaml
   - containers
   - safe

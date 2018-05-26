@@ -1,14 +1,18 @@
 module Animate.Frames where
 
 import qualified Data.Map as Map
+import qualified Data.ByteString.Lazy as BL
 import Data.Map (Map)
 import Data.Text (pack)
+import Data.Bifunctor (bimap)
 import Codec.Picture
+import Codec.Picture.Png (encodePng)
+import Codec.Picture.Repa (hConcat, vConcat, convertImage, Img, RGBA, imgToImage)
 import Safe (headMay)
 import Data.Maybe (fromMaybe)
 import Data.List (find, sortBy)
 import GHC.Float (sqrtFloat)
-import Animate (FrameIndex, SpriteSheetInfo(..))
+import Animate (FrameIndex, SpriteSheetInfo(..), SpriteClip(..))
 
 import Animate.Frames.Options (getOptions, printUsage, Options(..))
 
@@ -93,12 +97,22 @@ main = do
       animations' <- flip mapM animations $ \(key,frames) -> do
         images <- mapM readImageOrFail frames
         return (key, map mkCropImage images)
-
-      flip mapM_ animations' $ \(key,images) -> do
-        print key
-        mapM_ (\CropImage{ciCoords,ciOrigin,ciDim} -> print (ciCoords,ciOrigin,ciDim)) images
+      let layout = layoutCrops 60 (Map.fromList animations')
+      let spriteSheetInfo = layoutToSpriteSheetInfo (optionsSpritesheet options) layout
+      let image = generateImageFromLayout layout
+      BL.writeFile (optionsSpritesheet options) (encodePng image)
 
 --
+
+writeCropImage :: FilePath -> CropImage -> IO ()
+writeCropImage fp ci = BL.writeFile fp (encodePng $ generateImageFromCropImage ci)
+
+generateImageFromCropImage :: CropImage -> Image PixelRGBA8
+generateImageFromCropImage ci = generateImage genPixel w h
+  where
+    (w, h) = ciDim ci
+    ((ofsX, ofsY), _) = ciCoords ci
+    genPixel x y = pixelAt (ciImage ci) (x + ofsX) (y + ofsY)
 
 readImageOrFail :: FilePath -> IO DynamicImage
 readImageOrFail fp = do
@@ -111,23 +125,38 @@ layoutToSpriteSheetInfo :: FilePath -> Layout -> SpriteSheetInfo String Seconds
 layoutToSpriteSheetInfo fp layout = SpriteSheetInfo
   { ssiImage = fp
   , ssiAlpha = Nothing
-  , ssiClips = []
+  , ssiClips = spriteClipsFromRows (layoutRows layout)
   , ssiAnimations = Map.mapKeys pack (layoutAnimations layout)
   }
 
-generateImageFromLayout :: Layout -> Int -> Int -> PixelRGBA8
-generateImageFromLayout layout x y = fromMaybe (PixelRGBA8 0 0 0 0) (getPixel x y)
+spriteClipsFromRows :: [Row] -> [SpriteClip String]
+spriteClipsFromRows rows = [] -- concatMap undefined rows
+
+generatePixelFromLayout :: Layout -> Int -> Int -> PixelRGBA8
+generatePixelFromLayout layout x y = fromMaybe (PixelRGBA8 0 0 0 0) (getPixel x y)
   where
     tree = buildVertTree (layoutRows layout)
     getPixel = lookupPixelFromTree tree
 
+generateImageFromLayout :: Layout -> Image PixelRGBA8
+generateImageFromLayout layout = generateImage (generatePixelFromLayout layout) w h
+  where
+    (w, h) = layoutSize layout
+
 layoutCrops :: Int -> Map String [CropImage] -> Layout
 layoutCrops fps cropImages = Layout size rows animations
   where
-    size = minBoundaries (concat $ Map.elems cropImages)
-    rows = mkRows size (map snd . sortByIndex . Map.toList $ cInfoImages cropInfo)
+    size = getLayoutDim rows
+    boundaries = minBoundaries (concat $ Map.elems cropImages)
+    rows = mkRows boundaries (map snd . sortByIndex . Map.toList $ cInfoImages cropInfo)
     animations = cropAnimationsToLayoutAnimations fps (cInfoAnimations cropInfo)
     cropInfo = buildCropInfo cropImages
+
+getLayoutDim :: [Row] -> (Int, Int)
+getLayoutDim rows = (width, rowTop lastRow + rowHeight lastRow)
+  where
+    lastRow = last rows
+    width = maximum (map rowWidth rows)
 
 sortByIndex :: Ord a => [(a, b)] -> [(a, b)]
 sortByIndex = sortBy (\x y -> compare (fst x) (fst y))
@@ -142,18 +171,18 @@ greaterThanRange :: Int -> Range -> Bool
 greaterThanRange x r = x < rMax r
 
 lookupNodeWithinRange :: (n -> Range) -> Tree n -> Int -> Maybe n
-lookupNodeWithinRange toRange (Node n left right) x =
-  if inRange x (toRange n)
+lookupNodeWithinRange toRange (Node n left right) v =
+  if inRange v (toRange n)
     then Just n
-    else if lessThanRange x (toRange n)
-      then left >>= \l -> lookupNodeWithinRange toRange l x
-      else right >>= \r -> lookupNodeWithinRange toRange r x
+    else if lessThanRange v (toRange n)
+      then left  >>= \l -> lookupNodeWithinRange toRange l v
+      else right >>= \r -> lookupNodeWithinRange toRange r v
 
 lookupPixelFromTree :: Tree VertNode -> Int -> Int -> Maybe PixelRGBA8
 lookupPixelFromTree tree x y = do
   vn <- lookupNodeWithinRange vnRange tree y
   hn <- lookupNodeWithinRange hnRange (vnHorzTree vn) x
-  let offset = (rMin (hnRange hn), rMax (vnRange vn))
+  let offset = (rMin (hnRange hn), rMin (vnRange vn))
   pixelFromCropImage offset (x,y) (hnCropImage hn)
 
 pixelFromCropImage
@@ -162,8 +191,8 @@ pixelFromCropImage
   -> CropImage
   -> Maybe PixelRGBA8
 pixelFromCropImage (ofsX,ofsY) (x,y) ci = let
-  (orgX, orgY) = ciOrigin ci
-  (x', y') = (x - ofsX + orgX, y - ofsY + orgY)
+  ((ofsX', ofsY'), _) = ciCoords ci
+  (x', y') = (x - ofsX + ofsX', y - ofsY + ofsY')
   img = ciImage ci
   in if x' >= 0 && y' >= 0 && x' < imageWidth img && y' < imageHeight img
     then Just $ pixelAt img x' y'
@@ -173,7 +202,7 @@ mkRows
   :: (Int, Int) -- Minimum boundaries
   -> [CropImage]
   -> [Row]
-mkRows (minX, _) images = rsFinished done ++ [rsCurrent done]
+mkRows (minX, _) images = rsFinished done ++ (if null . rowCropImages $ rsCurrent done then [] else [rsCurrent done])
   where
     done :: RowStep
     done = foldr stepRow initRowStep images
@@ -183,7 +212,7 @@ mkRows (minX, _) images = rsFinished done ++ [rsCurrent done]
       cur' = appendCropImage cur ci
       in if minX > rowWidth cur'
         then RowStep cur' finished
-        else RowStep initRow{ rowTop = 1 + rowTop cur' + rowHeight cur' } (finished ++ [cur'])
+        else RowStep initRow{ rowTop = rowTop cur' + rowHeight cur' } (finished ++ [cur'])
 
 appendCropImage :: Row -> CropImage -> Row
 appendCropImage row ci = row
@@ -295,10 +324,10 @@ maxHeight = maximum . map (snd . ciDim)
 
 minBoundaries :: [CropImage] -> (Int, Int)
 minBoundaries images = let
+  bound = round . ((*) (sqrtFloat num)) . (/num) . fromIntegral
+  num = fromIntegral (length images)
   dim = sumDim images
-  in ( round . sqrtFloat . fromIntegral . fst $ dim
-     , round . sqrtFloat . fromIntegral . snd $ dim
-     )
+  in ( bound (fst dim), bound (snd dim) )
 
 mkCropImage :: DynamicImage -> CropImage
 mkCropImage di = CropImage
@@ -312,7 +341,7 @@ mkCropImage di = CropImage
     coords = cropCoordsImage img
 
 cropImageDim :: ((Int, Int), (Int, Int)) -> (Int, Int)
-cropImageDim ((x0,y0), (x1,y1)) = (x1 - x0, y1 - y0)
+cropImageDim ((x0,y0), (x1,y1)) = (x1 - x0 + 1, y1 - y0 + 1)
 
 cropCoordsImage :: (Pixel a, Eq (PixelBaseComponent a)) => Image a -> ((Int, Int), (Int, Int))
 cropCoordsImage img = fromMaybe ((0,0), (1,1)) maybeCropped
