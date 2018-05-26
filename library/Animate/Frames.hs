@@ -2,12 +2,14 @@ module Animate.Frames where
 
 import qualified Data.Map as Map
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Text.IO as T
+import qualified Data.Text as T
+import Text.Printf (printf)
 import Data.Map (Map)
-import Data.Text (pack)
-import Data.Bifunctor (bimap)
+import Data.Monoid ((<>))
+import Data.Text (pack, Text)
 import Codec.Picture
 import Codec.Picture.Png (encodePng)
-import Codec.Picture.Repa (hConcat, vConcat, convertImage, Img, RGBA, imgToImage)
 import Safe (headMay)
 import Data.Maybe (fromMaybe)
 import Data.List (find, sortBy)
@@ -92,7 +94,6 @@ main = do
   case options' of
     Nothing -> printUsage
     Just options -> do
-      print options
       let animations = Map.toList (optionsAnimations options)
       animations' <- flip mapM animations $ \(key,frames) -> do
         images <- mapM readImageOrFail frames
@@ -101,6 +102,7 @@ main = do
       let spriteSheetInfo = layoutToSpriteSheetInfo (optionsSpritesheet options) layout
       let image = generateImageFromLayout layout
       BL.writeFile (optionsSpritesheet options) (encodePng image)
+      T.writeFile (optionsMetadata options) (customWriteSpriteSheetInfo spriteSheetInfo)
 
 --
 
@@ -129,8 +131,58 @@ layoutToSpriteSheetInfo fp layout = SpriteSheetInfo
   , ssiAnimations = Map.mapKeys pack (layoutAnimations layout)
   }
 
+customWriteSpriteSheetInfo :: SpriteSheetInfo a Seconds -> Text
+customWriteSpriteSheetInfo ssi = T.unlines (linesOfSpriteSheetInfo ssi)
+
+linesOfSpriteSheetInfo :: SpriteSheetInfo a Seconds -> [Text]
+linesOfSpriteSheetInfo ssi =
+  ["image: \"" <> pack (ssiImage ssi) <> "\""] ++
+  ["alpha: null"] ++
+  [] ++
+  ["clips:"] ++
+  (map (uncurry spriteClipToText) (zip [0..] (ssiClips ssi))) ++ 
+  [] ++
+  ["animations:"] ++
+  concatMap (uncurry animationToText) (Map.toList (ssiAnimations ssi))
+
+spriteClipToText :: Int -> SpriteClip a -> Text
+spriteClipToText idx SpriteClip{scX,scY,scW,scH,scOffset} = mconcat $
+  [ "- [" ] ++
+  ([textShow scX, ", ", textShow scY, ", ", textShow scW, ", ", textShow scH] <> case scOffset of
+      Nothing -> []
+      Just (x,y) -> [", ", textShow x, ", ", textShow y]) ++
+  ["] # " <> textShow idx]
+
+animationToText :: Text -> [(FrameIndex, Seconds)] -> [Text]
+animationToText name frames =
+  ["  " <> textShow name <> ":"] ++
+  map (\(frameIndex, seconds) -> mconcat ["  - [", textShow frameIndex, ", ", showFloat seconds, "]"]) frames
+
+showFloat :: Float -> Text
+showFloat f = pack $ printf "%.4f" f
+
+textShow :: Show a => a -> Text
+textShow = pack . show
+
 spriteClipsFromRows :: [Row] -> [SpriteClip String]
-spriteClipsFromRows rows = [] -- concatMap undefined rows
+spriteClipsFromRows rows = concatMap buildSpriteClips rows
+  where
+    buildSpriteClips :: Row -> [SpriteClip String]
+    buildSpriteClips row = fst $ foldr stepSpriteClips ([], 0) (rowCropImages row)
+      where
+        stepSpriteClips :: CropImage -> ([SpriteClip String], Int) -> ([SpriteClip String], Int)
+        stepSpriteClips ci (scs, widthTotal) = (scs ++ [sc], widthTotal + w)
+          where
+            (w, h) = ciDim ci
+            ((ofsX, ofsY), _) = ciCoords ci
+            (orgX, orgY) = ciOrigin ci
+            sc = SpriteClip
+              { scX = widthTotal
+              , scY = rowTop row
+              , scW = w
+              , scH = h
+              , scOffset = Just (orgX - ofsX, orgY - ofsY)
+              }
 
 generatePixelFromLayout :: Layout -> Int -> Int -> PixelRGBA8
 generatePixelFromLayout layout x y = fromMaybe (PixelRGBA8 0 0 0 0) (getPixel x y)
