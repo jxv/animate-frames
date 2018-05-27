@@ -141,7 +141,7 @@ linesOfSpriteSheetInfo ssi =
   ["alpha: null"] ++
   [] ++
   ["clips:"] ++
-  (map (uncurry spriteClipToText) (zip [0..] (ssiClips ssi))) ++ 
+  (zipWith spriteClipToText [0..] (ssiClips ssi)) ++
   [] ++
   ["animations:"] ++
   concatMap (uncurry animationToText) (Map.toList (ssiAnimations ssi))
@@ -200,7 +200,7 @@ layoutCrops :: Int -> Map String [CropImage] -> Layout
 layoutCrops fps cropImages = Layout size rows animations
   where
     size = getLayoutDim rows
-    boundaries = minBoundaries (concat $ Map.elems cropImages)
+    boundaries = minBoundaries (Map.elems $ cInfoImages cropInfo)
     rows = mkRows boundaries (map snd . sortByIndex . Map.toList $ cInfoImages cropInfo)
     animations = cropAnimationsToLayoutAnimations fps (cInfoAnimations cropInfo)
     cropInfo = buildCropInfo cropImages
@@ -258,10 +258,10 @@ mkRows
 mkRows (minX, _) images = rsFinished done ++ (if null . rowCropImages $ rsCurrent done then [] else [rsCurrent done])
   where
     done :: RowStep
-    done = foldr stepRow initRowStep images
+    done = foldl' stepRow initRowStep images
 
-    stepRow :: CropImage -> RowStep -> RowStep
-    stepRow ci (RowStep cur finished) = let
+    stepRow :: RowStep -> CropImage -> RowStep
+    stepRow (RowStep cur finished) ci = let
       cur' = appendCropImage cur ci
       in if minX > rowWidth cur'
         then RowStep cur' finished
@@ -269,7 +269,7 @@ mkRows (minX, _) images = rsFinished done ++ (if null . rowCropImages $ rsCurren
 
 appendCropImage :: Row -> CropImage -> Row
 appendCropImage row ci = row
-  { rowCropImages = rowCropImages row ++ [ci]
+  { rowCropImages = ci : rowCropImages row
   , rowHeight = max (rowHeight row) cropImageHeight
   , rowWidth = rowWidth row + cropImageWidth
   }
