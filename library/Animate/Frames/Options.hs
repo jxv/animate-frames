@@ -4,6 +4,7 @@ import qualified Data.Map as Map
 import System.Environment (getArgs)
 import Data.Map (Map)
 import Data.List (intercalate)
+import Safe (readMay)
 
 getOptions :: IO (Maybe Options)
 getOptions = do
@@ -13,15 +14,16 @@ getOptions = do
 printUsage :: IO ()
 printUsage = do
     putStrLn "Usage:"
-    putStrLn "  animate-frames [--animation <key> <frame0.png> <frame1.png> ...] [--image <spritesheet.png>] [--metadata <target.yaml>]"
+    putStrLn "  animate-frames [--animation <key> <frame0.png> <frame1.png> ...] [--image <spritesheet.png>] [--metadata <target.yaml>] [--fps <int>]"
     putStrLn ""
     putStrLn "Example:"
     putStrLn $ intercalate "\n"
-        [ "animate-frames"
-        , "  --animation Idle idle_0000.png idle_0001.png idle_0002.png"
-        , "  --animation Walk walk_0000.png walk_0001.png walk_0002.png"
-        , "  --spritesheet sprite.png"
-        , "  --metadata sprite.yaml"
+        [ "animate-frames \\"
+        , "  --animation Idle idle_0000.png idle_0001.png idle_0002.png \\"
+        , "  --animation Walk walk_0000.png walk_0001.png walk_0002.png \\"
+        , "  --spritesheet sprite.png \\"
+        , "  --metadata sprite.yaml \\"
+        , "  [--fps 60] # default: 24fps"
         ]
     putStrLn ""
 
@@ -29,6 +31,7 @@ data Options = Options
     { optionsAnimations :: Map String [String]
     , optionsSpritesheet :: String
     , optionsMetadata :: String
+    , optionsFps :: Int
     } deriving (Show, Eq)
 
 startAnimation :: String -> Bool
@@ -40,16 +43,21 @@ startSpritesheet = (==) "--spritesheet"
 startMetadata :: String -> Bool
 startMetadata = (==) "--metadata"
 
+startFps :: String -> Bool
+startFps = (==) "--fps"
+
 toOptions :: [String] -> Maybe Options
 toOptions strArgs = do
     args <- toArgs strArgs
     let animations = toAnimations args
     spritesheet <- toSpritesheet args
     metadata <- toMetadata args
+    let fps = toFps args
     Just Options
         { optionsAnimations = animations
         , optionsSpritesheet = spritesheet
         , optionsMetadata = metadata
+        , optionsFps = fps
         }
 
 data Arg
@@ -60,6 +68,8 @@ data Arg
     | Arg'Spritesheet String
     | Arg'MetadataStart
     | Arg'Metadata String
+    | Arg'FpsStart
+    | Arg'Fps Int
     deriving (Show, Eq)
 
 data AniArg
@@ -102,6 +112,12 @@ toAniArgs (a:as) = case a of
     Arg'AnimationFrame s -> AniArg'Frame s : toAniArgs as
     _ -> toAniArgs as
 
+toFps :: [Arg] -> Int
+toFps [] = 24 -- Krita default animation FPS is 24fps
+toFps (a:as) = case a of
+    Arg'Fps x -> x
+    _  -> toFps as
+
 toArgs :: [String] -> Maybe [Arg]
 toArgs args = collapseEitherArgTokens (fmap firstPassToken args)
 
@@ -125,6 +141,7 @@ firstPassToken s
     | startAnimation s = Left Arg'AnimationStart
     | startSpritesheet s = Left Arg'SpritesheetStart
     | startMetadata s = Left Arg'MetadataStart
+    | startFps s = Left Arg'FpsStart
     | otherwise = Right s
 
 secondPassToken :: Arg -> Either Arg String -> Maybe Arg
@@ -135,4 +152,5 @@ secondPassToken prev (Right arg) = case prev of
     Arg'AnimationFrame _ -> Just $ Arg'AnimationFrame arg
     Arg'SpritesheetStart -> Just $ Arg'Spritesheet arg
     Arg'MetadataStart -> Just $ Arg'Metadata arg
+    Arg'FpsStart -> Arg'Fps <$> readMay arg
     _ -> Nothing

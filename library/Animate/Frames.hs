@@ -99,7 +99,7 @@ main = do
       animations' <- flip mapM animations $ \(key,frames) -> do
         images <- mapM readImageOrFail frames
         return (key, map mkCropImage images)
-      let layout = layoutCrops 60 (Map.fromList animations')
+      let layout = layoutCrops (optionsFps options) (Map.fromList animations')
       let spriteSheetInfo = layoutToSpriteSheetInfo (optionsSpritesheet options) layout
       let image = generateImageFromLayout layout
       BL.writeFile (optionsSpritesheet options) (encodePng image)
