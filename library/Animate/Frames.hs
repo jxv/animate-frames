@@ -5,15 +5,15 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.IO as T
 import qualified Data.Text as T
 import Text.Printf (printf)
-import Data.List (foldl')
 import Data.Map (Map)
 import Data.Monoid ((<>))
 import Data.Text (pack, Text)
 import Codec.Picture
 import Codec.Picture.Png (encodePng)
+import Control.Monad (forM)
 import Safe (headMay)
 import Data.Maybe (fromMaybe)
-import Data.List (find, sortBy)
+import Data.List (find, sortBy, foldl')
 import GHC.Float (sqrtFloat)
 import Animate (FrameIndex, SpriteSheetInfo(..), SpriteClip(..))
 
@@ -96,7 +96,7 @@ main = do
     Nothing -> printUsage
     Just options -> do
       let animations = Map.toList (optionsAnimations options)
-      animations' <- flip mapM animations $ \(key,frames) -> do
+      animations' <- forM animations $ \(key,frames) -> do
         images <- mapM readImageOrFail frames
         return (key, map mkCropImage images)
       let layout = layoutCrops (optionsFps options) (Map.fromList animations')
