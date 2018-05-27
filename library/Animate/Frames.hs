@@ -94,16 +94,26 @@ main = do
   options' <- getOptions
   case options' of
     Nothing -> printUsage
-    Just options -> do
-      let animations = Map.toList (optionsAnimations options)
-      animations' <- forM animations $ \(key,frames) -> do
-        images <- mapM readImageOrFail frames
-        return (key, map mkCropImage images)
-      let layout = layoutCrops (optionsFps options) (Map.fromList animations')
-      let spriteSheetInfo = layoutToSpriteSheetInfo (optionsSpritesheet options) layout
-      let image = generateImageFromLayout layout
-      BL.writeFile (optionsSpritesheet options) (encodePng image)
-      T.writeFile (optionsMetadata options) (customWriteSpriteSheetInfo spriteSheetInfo)
+    Just options -> 
+      if validAnimationCount options
+        then do
+          let animations = Map.toList (optionsAnimations options)
+          animations' <- forM animations $ \(key,frames) -> do
+            images <- mapM readImageOrFail frames
+            return (key, map mkCropImage images)
+          let layout = layoutCrops (optionsFps options) (Map.fromList animations')
+          let spriteSheetInfo = layoutToSpriteSheetInfo (optionsSpritesheet options) layout
+          let image = generateImageFromLayout layout
+          BL.writeFile (optionsSpritesheet options) (encodePng image)
+          T.writeFile (optionsMetadata options) (customWriteSpriteSheetInfo spriteSheetInfo)
+        else do
+          putStrLn "Not enough animation frame images"
+          printUsage
+
+--
+
+validAnimationCount :: Options -> Bool
+validAnimationCount options = not $ any null $ Map.elems (optionsAnimations options)
 
 --
 
