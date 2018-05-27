@@ -396,29 +396,29 @@ mkCropImage di = CropImage
 cropImageDim :: ((Int, Int), (Int, Int)) -> (Int, Int)
 cropImageDim ((x0,y0), (x1,y1)) = (x1 - x0 + 1, y1 - y0 + 1)
 
-cropCoordsImage :: (Pixel a, Eq (PixelBaseComponent a)) => Image a -> ((Int, Int), (Int, Int))
+cropCoordsImage :: (Pixel a, Eq (PixelBaseComponent a), Ord (PixelBaseComponent a)) => Image a -> ((Int, Int), (Int, Int))
 cropCoordsImage img = fromMaybe ((0,0), (1,1)) maybeCropped
     where
       maybeCropped = (,)
         <$> ((,) <$> findX0 img <*> findY0 img)
         <*> ((,) <$> findX1 img <*> findY1 img)
 
-firstOpaquePoint :: (Pixel a, Eq (PixelBaseComponent a)) => (Image a -> [(Int, Int)]) -> ((Int, Int) -> Int) -> Image a -> Maybe Int
+firstOpaquePoint :: (Pixel a, Eq (PixelBaseComponent a), Ord (PixelBaseComponent a)) => (Image a -> [(Int, Int)]) -> ((Int, Int) -> Int) -> Image a -> Maybe Int
 firstOpaquePoint mkCoords whichPoint img = fmap fst $ headMay $ filter snd (map getPixel coords)
   where
-    getPixel coord@(x,y) = (whichPoint coord, pixelOpacity (pixelAt img x y) == 255)
+    getPixel coord@(x,y) = (whichPoint coord, pixelOpacity (pixelAt img x y) > 0)
     coords = mkCoords img
 
-findY0 :: (Pixel a, Eq (PixelBaseComponent a)) => Image a -> Maybe Int
+findY0 :: (Pixel a, Eq (PixelBaseComponent a), Ord (PixelBaseComponent a)) => Image a -> Maybe Int
 findY0 = firstOpaquePoint topDown snd
 
-findY1 :: (Pixel a, Eq (PixelBaseComponent a)) => Image a -> Maybe Int
+findY1 :: (Pixel a, Eq (PixelBaseComponent a), Ord (PixelBaseComponent a)) => Image a -> Maybe Int
 findY1 = firstOpaquePoint downTop snd
 
-findX0 :: (Pixel a, Eq (PixelBaseComponent a)) => Image a -> Maybe Int
+findX0 :: (Pixel a, Eq (PixelBaseComponent a), Ord (PixelBaseComponent a)) => Image a -> Maybe Int
 findX0 = firstOpaquePoint leftRight fst
 
-findX1 :: (Pixel a, Eq (PixelBaseComponent a)) => Image a -> Maybe Int
+findX1 :: (Pixel a, Eq (PixelBaseComponent a), Ord (PixelBaseComponent a)) => Image a -> Maybe Int
 findX1 = firstOpaquePoint rightLeft fst
 
 topDown :: Image a -> [(Int,Int)]
