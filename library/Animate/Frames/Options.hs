@@ -14,7 +14,7 @@ getOptions = do
 printUsage :: IO ()
 printUsage = do
     putStrLn "Usage:"
-    putStrLn "  animate-frames [--animation <key> <frame0.png> <frame1.png> ...] [--image <spritesheet.png>] [--metadata <target.yaml>] [--fps <int>]"
+    putStrLn "  animate-frames [--animation <key> <frame0.png> <frame1.png> ...] [--image <spritesheet.png>] [--metadata <target.json>] [--fps <int>] [--yaml]"
     putStrLn ""
     putStrLn "Example:"
     putStrLn $ intercalate "\n"
@@ -24,6 +24,7 @@ printUsage = do
         , "  --spritesheet sprite.png \\"
         , "  --metadata sprite.yaml \\"
         , "  [--fps 60] # default: 24fps"
+        , "  [--yaml] # default is JSON"
         ]
     putStrLn ""
 
@@ -32,6 +33,7 @@ data Options = Options
     , optionsSpritesheet :: String
     , optionsMetadata :: String
     , optionsFps :: Int
+    , optionsYaml :: Bool
     } deriving (Show, Eq)
 
 startAnimation :: String -> Bool
@@ -46,6 +48,9 @@ startMetadata = (==) "--metadata"
 startFps :: String -> Bool
 startFps = (==) "--fps"
 
+startYaml :: String -> Bool
+startYaml = (==) "--yaml"
+
 toOptions :: [String] -> Maybe Options
 toOptions strArgs = do
     args <- toArgs strArgs
@@ -53,11 +58,13 @@ toOptions strArgs = do
     spritesheet <- toSpritesheet args
     metadata <- toMetadata args
     let fps = toFps args
+    let yaml = toYaml args
     Just Options
         { optionsAnimations = animations
         , optionsSpritesheet = spritesheet
         , optionsMetadata = metadata
         , optionsFps = fps
+        , optionsYaml = yaml
         }
 
 data Arg
@@ -70,6 +77,7 @@ data Arg
     | Arg'Metadata String
     | Arg'FpsStart
     | Arg'Fps Int
+    | Arg'Yaml
     deriving (Show, Eq)
 
 data AniArg
@@ -118,6 +126,9 @@ toFps (a:as) = case a of
     Arg'Fps x -> x
     _  -> toFps as
 
+toYaml :: [Arg] -> Bool
+toYaml = any (== Arg'Yaml)
+
 toArgs :: [String] -> Maybe [Arg]
 toArgs args = collapseEitherArgTokens (fmap firstPassToken args)
 
@@ -142,6 +153,7 @@ firstPassToken s
     | startSpritesheet s = Left Arg'SpritesheetStart
     | startMetadata s = Left Arg'MetadataStart
     | startFps s = Left Arg'FpsStart
+    | startYaml s = Left Arg'Yaml
     | otherwise = Right s
 
 secondPassToken :: Arg -> Either Arg String -> Maybe Arg

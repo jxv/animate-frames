@@ -4,7 +4,9 @@ import qualified Data.Map as Map
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.IO as T
 import qualified Data.Text as T
+import Control.Monad (forM)
 import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Data.Digest.Pure.MD5
 import Text.Printf (printf)
 import Data.Map (Map)
@@ -106,10 +108,7 @@ main = do
             imageIdsAndImages <- mapM readImageOrFail frames
             return (animationKey, imageIdsAndImages)
           let imageMap = Map.fromList $ concatMap snd animationImages
-          let animations' = Map.fromList $ fmap
-                (\(animationKey, imageIdsAndImages) ->
-                  (animationKey, map (mkCropImage imageMap . fst) imageIdsAndImages))
-                animationImages 
+          animations' <- createCropImagesWithCache animationImages imageMap
           let layout = layoutCrops (optionsFps options) animations'
           let spriteSheetInfo = layoutToSpriteSheetInfo (optionsSpritesheet options) layout
           let image = generateImageFromLayout imageMap layout
@@ -119,6 +118,20 @@ main = do
           putStrLn "Not enough animation frame images"
           printUsage
 
+createCropImagesWithCache :: [(String, [(ImageId, a)])] -> Map ImageId (Image PixelRGBA8) -> IO (Map String [CropImage])
+createCropImagesWithCache animationImages imageMap = do
+  imageIdCropImageMapTVar <- newTVarIO Map.empty
+  animationImages' <- forM animationImages $ \(animationKey, imageIdsAndImages) -> do
+    xs <- forConcurrently imageIdsAndImages $ \(imageId, _) -> do
+      imageIdCropImageMap <- readTVarIO imageIdCropImageMapTVar
+      case Map.lookup imageId imageIdCropImageMap of
+        Nothing -> do
+          let cropImage = mkCropImage imageMap imageId
+          atomically $ modifyTVar imageIdCropImageMapTVar $ \m -> Map.insert imageId cropImage m
+          return cropImage
+        Just cropImage -> return cropImage
+    return (animationKey, xs)   
+  return $ Map.fromList animationImages'
 --
 
 validAnimationCount :: Options -> Bool

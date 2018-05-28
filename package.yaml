@@ -33,7 +33,7 @@ library:
   - safe
   - text
   - vector
-  - yaml
+  - stm
   source-dirs: library
 
 executables:
