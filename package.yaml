@@ -26,9 +26,9 @@ library:
   - bytestring
   - animate
   - JuicyPixels
-  - JuicyPixels-repa
   - yaml
   - containers
+  - pureMD5
   - safe
   - text
   - vector

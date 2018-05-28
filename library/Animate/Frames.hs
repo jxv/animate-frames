@@ -4,6 +4,7 @@ import qualified Data.Map as Map
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.IO as T
 import qualified Data.Text as T
+import Data.Digest.Pure.MD5
 import Text.Printf (printf)
 import Data.Map (Map)
 import Data.Monoid ((<>))
@@ -45,7 +46,7 @@ data RowStep = RowStep
   }
 
 data CropImage = CropImage
-  { ciImage :: Image PixelRGBA8
+  { ciImage :: ImageId
   , ciCoords :: ((Int, Int), (Int, Int))
   , ciOrigin :: (Int, Int)
   , ciDim :: (Int, Int)
@@ -53,13 +54,16 @@ data CropImage = CropImage
 
 instance Eq CropImage where
   a == b = and
-    [ eqImagePixelRGBA8 (ciImage a) (ciImage b)
+    [ ciImage a == ciImage b
     , ciCoords a == ciCoords b
     , ciOrigin a == ciOrigin b
     , ciDim a == ciDim b
     ]
 
 type CropId = Int
+
+newtype ImageId = ImageId MD5Digest
+  deriving (Show, Eq, Ord)
 
 data CropFrame = CropFrame
   { cfCropId :: CropId
@@ -98,12 +102,18 @@ main = do
       if validAnimationCount options
         then do
           let animations = Map.toList (optionsAnimations options)
-          animations' <- forM animations $ \(key,frames) -> do
-            images <- mapM readImageOrFail frames
-            return (key, map mkCropImage images)
-          let layout = layoutCrops (optionsFps options) (Map.fromList animations')
+
+          animationImages <- forM animations $ \(animationKey,frames) -> do
+            imageIdsAndImages <- mapM readImageOrFail frames
+            return (animationKey, imageIdsAndImages)
+          let imageMap = Map.fromList $ concatMap snd animationImages
+          let animations' = Map.fromList $ fmap
+                (\(animationKey, imageIdsAndImages) ->
+                  (animationKey, map (mkCropImage imageMap . fst) imageIdsAndImages))
+                animationImages 
+          let layout = layoutCrops (optionsFps options) animations'
           let spriteSheetInfo = layoutToSpriteSheetInfo (optionsSpritesheet options) layout
-          let image = generateImageFromLayout layout
+          let image = generateImageFromLayout imageMap layout
           BL.writeFile (optionsSpritesheet options) (encodePng image)
           T.writeFile (optionsMetadata options) (customWriteSpriteSheetInfo spriteSheetInfo)
         else do
@@ -117,22 +127,25 @@ validAnimationCount options = not $ any null $ Map.elems (optionsAnimations opti
 
 --
 
-writeCropImage :: FilePath -> CropImage -> IO ()
-writeCropImage fp ci = BL.writeFile fp (encodePng $ generateImageFromCropImage ci)
+writeCropImage :: Map ImageId (Image PixelRGBA8) -> FilePath -> CropImage -> IO ()
+writeCropImage images fp ci = BL.writeFile fp (encodePng $ generateImageFromCropImage images ci)
 
-generateImageFromCropImage :: CropImage -> Image PixelRGBA8
-generateImageFromCropImage ci = generateImage genPixel w h
+generateImageFromCropImage :: Map ImageId (Image PixelRGBA8) -> CropImage -> Image PixelRGBA8
+generateImageFromCropImage images ci = generateImage genPixel w h
   where
     (w, h) = ciDim ci
     ((ofsX, ofsY), _) = ciCoords ci
-    genPixel x y = pixelAt (ciImage ci) (x + ofsX) (y + ofsY)
+    img = images Map.! (ciImage ci)
+    genPixel x y = pixelAt img (x + ofsX) (y + ofsY)
 
-readImageOrFail :: FilePath -> IO DynamicImage
+readImageOrFail :: FilePath -> IO (ImageId, Image PixelRGBA8)
 readImageOrFail fp = do
-  img' <- readImage fp
+  bytes <- BL.readFile fp
+  let digest = md5 bytes
+  let img' = decodeImage (BL.toStrict bytes)
   case img' of
     Left _ -> fail $ "Can't load image: " ++ fp
-    Right img -> return img
+    Right img -> return (ImageId digest, convertRGBA8 img)
 
 layoutToSpriteSheetInfo :: FilePath -> Layout -> SpriteSheetInfo String Seconds
 layoutToSpriteSheetInfo fp layout = SpriteSheetInfo
@@ -195,14 +208,14 @@ spriteClipsFromRows rows = concatMap buildSpriteClips rows
               , scOffset = Just (orgX - ofsX, orgY - ofsY)
               }
 
-generatePixelFromLayout :: Layout -> Int -> Int -> PixelRGBA8
-generatePixelFromLayout layout x y = fromMaybe (PixelRGBA8 0 0 0 0) (getPixel x y)
+generatePixelFromLayout :: Map ImageId (Image PixelRGBA8) -> Layout -> Int -> Int -> PixelRGBA8
+generatePixelFromLayout images layout x y = fromMaybe (PixelRGBA8 0 0 0 0) (getPixel x y)
   where
     tree = buildVertTree (layoutRows layout)
-    getPixel = lookupPixelFromTree tree
+    getPixel = lookupPixelFromTree images tree
 
-generateImageFromLayout :: Layout -> Image PixelRGBA8
-generateImageFromLayout layout = generateImage (generatePixelFromLayout layout) w h
+generateImageFromLayout :: Map ImageId (Image PixelRGBA8) -> Layout -> Image PixelRGBA8
+generateImageFromLayout images layout = generateImage (generatePixelFromLayout images layout) w h
   where
     (w, h) = layoutSize layout
 
@@ -241,22 +254,23 @@ lookupNodeWithinRange toRange (Node n left right) v =
       then left  >>= \l -> lookupNodeWithinRange toRange l v
       else right >>= \r -> lookupNodeWithinRange toRange r v
 
-lookupPixelFromTree :: Tree VertNode -> Int -> Int -> Maybe PixelRGBA8
-lookupPixelFromTree tree x y = do
+lookupPixelFromTree :: Map ImageId (Image PixelRGBA8) -> Tree VertNode -> Int -> Int -> Maybe PixelRGBA8
+lookupPixelFromTree images tree x y = do
   vn <- lookupNodeWithinRange vnRange tree y
   hn <- lookupNodeWithinRange hnRange (vnHorzTree vn) x
   let offset = (rMin (hnRange hn), rMin (vnRange vn))
-  pixelFromCropImage offset (x,y) (hnCropImage hn)
+  pixelFromCropImage images offset (x,y) (hnCropImage hn)
 
 pixelFromCropImage
-  :: (Int, Int) -- ^ Offset
+  :: Map ImageId (Image PixelRGBA8)
+  -> (Int, Int) -- ^ Offset
   -> (Int, Int) -- ^ Spritesheet location
   -> CropImage
   -> Maybe PixelRGBA8
-pixelFromCropImage (ofsX,ofsY) (x,y) ci = let
+pixelFromCropImage images (ofsX,ofsY) (x,y) ci = let
   ((ofsX', ofsY'), _) = ciCoords ci
   (x', y') = (x - ofsX + ofsX', y - ofsY + ofsY')
-  img = ciImage ci
+  img = images Map.! (ciImage ci)
   in if x' >= 0 && y' >= 0 && x' < imageWidth img && y' < imageHeight img
     then Just $ pixelAt img x' y'
     else Nothing
@@ -392,15 +406,15 @@ minBoundaries images = let
   dim = sumDim images
   in ( bound (fst dim), bound (snd dim) )
 
-mkCropImage :: DynamicImage -> CropImage
-mkCropImage di = CropImage
-  { ciImage = img
+mkCropImage :: Map ImageId (Image PixelRGBA8) -> ImageId -> CropImage
+mkCropImage images imageId = CropImage
+  { ciImage = imageId
   , ciCoords = coords
   , ciOrigin = (imageWidth img `div` 2, imageHeight img `div` 2)
   , ciDim = cropImageDim coords
   }
   where
-    img = convertRGBA8 di
+    img = images Map.! imageId
     coords = cropCoordsImage img
 
 cropImageDim :: ((Int, Int), (Int, Int)) -> (Int, Int)
