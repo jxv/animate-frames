@@ -4,6 +4,7 @@ import qualified Data.Map as Map
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.IO as T
 import qualified Data.Text as T
+import Control.Concurrent.Async
 import Data.Digest.Pure.MD5
 import Text.Printf (printf)
 import Data.Map (Map)
@@ -11,7 +12,6 @@ import Data.Monoid ((<>))
 import Data.Text (pack, Text)
 import Codec.Picture
 import Codec.Picture.Png (encodePng)
-import Control.Monad (forM)
 import Safe (headMay)
 import Data.Maybe (fromMaybe)
 import Data.List (find, sortBy, foldl')
@@ -102,8 +102,7 @@ main = do
       if validAnimationCount options
         then do
           let animations = Map.toList (optionsAnimations options)
-
-          animationImages <- forM animations $ \(animationKey,frames) -> do
+          animationImages <- forConcurrently animations $ \(animationKey,frames) -> do
             imageIdsAndImages <- mapM readImageOrFail frames
             return (animationKey, imageIdsAndImages)
           let imageMap = Map.fromList $ concatMap snd animationImages
@@ -189,7 +188,7 @@ textShow :: Show a => a -> Text
 textShow = pack . show
 
 spriteClipsFromRows :: [Row] -> [SpriteClip String]
-spriteClipsFromRows rows = concatMap buildSpriteClips rows
+spriteClipsFromRows = concatMap buildSpriteClips
   where
     buildSpriteClips :: Row -> [SpriteClip String]
     buildSpriteClips row = fst $ foldr stepSpriteClips ([], 0) (rowCropImages row)
@@ -338,9 +337,8 @@ cropAnimationsToLayoutAnimations
   :: Int -- ^ Frames per seconds
   -> Map String [CropFrame] -- ^ Crop animations
   -> Map String [(FrameIndex, Seconds)] 
-cropAnimationsToLayoutAnimations fps cropAnimations = fmap
-    (map (\CropFrame{cfCount,cfCropId} -> (cfCropId, sum $ replicate cfCount spf)))
-    cropAnimations
+cropAnimationsToLayoutAnimations fps = fmap $ map $ \CropFrame{cfCount,cfCropId} ->
+  (cfCropId, sum $ replicate cfCount spf)
   where
     spf = 1 / fromIntegral fps
 
