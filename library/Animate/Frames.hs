@@ -4,6 +4,7 @@ import qualified Data.Map as Map
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.IO as T
 import qualified Data.Text as T
+import qualified Data.Aeson as A
 import Control.Monad (forM)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
@@ -113,7 +114,9 @@ main = do
           let spriteSheetInfo = layoutToSpriteSheetInfo (optionsSpritesheet options) layout
           let image = generateImageFromLayout imageMap layout
           BL.writeFile (optionsSpritesheet options) (encodePng image)
-          T.writeFile (optionsMetadata options) (customWriteSpriteSheetInfo spriteSheetInfo)
+          if optionsYaml options
+            then T.writeFile (optionsMetadata options) (customWriteSpriteSheetInfo spriteSheetInfo)
+            else BL.writeFile (optionsMetadata options) (A.encode spriteSheetInfo)
         else do
           putStrLn "Not enough animation frame images"
           printUsage
