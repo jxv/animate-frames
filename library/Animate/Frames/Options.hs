@@ -23,7 +23,8 @@ printUsage = do
         , "  --animation Walk walk_0000.png walk_0001.png walk_0002.png \\"
         , "  --spritesheet sprite.png \\"
         , "  --metadata sprite.yaml \\"
-        , "  [--fps 60] # default: 24fps"
+        , "  --image \"path/to/sprite.png\" \\"
+        , "  [--fps 60] \\ # default: 24fps"
         , "  [--yaml] # default is JSON"
         ]
     putStrLn ""
@@ -31,6 +32,7 @@ printUsage = do
 data Options = Options
     { optionsAnimations :: Map String [String]
     , optionsSpritesheet :: String
+    , optionsImage :: String
     , optionsMetadata :: String
     , optionsFps :: Int
     , optionsYaml :: Bool
@@ -51,12 +53,16 @@ startFps = (==) "--fps"
 startYaml :: String -> Bool
 startYaml = (==) "--yaml"
 
+startImage :: String -> Bool
+startImage = (==) "--image"
+
 toOptions :: [String] -> Maybe Options
 toOptions strArgs = do
     args <- toArgs strArgs
     let animations = toAnimations args
     spritesheet <- toSpritesheet args
     metadata <- toMetadata args
+    image <- toImage args
     let fps = toFps args
     let yaml = toYaml args
     Just Options
@@ -65,6 +71,7 @@ toOptions strArgs = do
         , optionsMetadata = metadata
         , optionsFps = fps
         , optionsYaml = yaml
+        , optionsImage = image
         }
 
 data Arg
@@ -77,6 +84,8 @@ data Arg
     | Arg'Metadata String
     | Arg'FpsStart
     | Arg'Fps Int
+    | Arg'ImageStart
+    | Arg'Image String
     | Arg'Yaml
     deriving (Show, Eq)
 
@@ -112,6 +121,12 @@ toMetadata [] = Nothing
 toMetadata (a:as) = case a of
     Arg'Metadata name -> Just name
     _ -> toMetadata as
+
+toImage :: [Arg] -> Maybe String
+toImage [] = Nothing
+toImage (a:as) = case a of
+    Arg'Image name -> Just name
+    _ -> toImage as
 
 toAniArgs :: [Arg] -> [AniArg]
 toAniArgs [] = []
@@ -154,6 +169,7 @@ firstPassToken s
     | startMetadata s = Left Arg'MetadataStart
     | startFps s = Left Arg'FpsStart
     | startYaml s = Left Arg'Yaml
+    | startImage s = Left Arg'ImageStart
     | otherwise = Right s
 
 secondPassToken :: Arg -> Either Arg String -> Maybe Arg
@@ -164,5 +180,6 @@ secondPassToken prev (Right arg) = case prev of
     Arg'AnimationFrame _ -> Just $ Arg'AnimationFrame arg
     Arg'SpritesheetStart -> Just $ Arg'Spritesheet arg
     Arg'MetadataStart -> Just $ Arg'Metadata arg
+    Arg'ImageStart -> Just $ Arg'Image arg
     Arg'FpsStart -> Arg'Fps <$> readMay arg
     _ -> Nothing

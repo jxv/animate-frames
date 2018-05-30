@@ -111,7 +111,7 @@ main = do
           let imageMap = Map.fromList $ concatMap snd animationImages
           animations' <- createCropImagesWithCache animationImages imageMap
           let layout = layoutCrops (optionsFps options) animations'
-          let spriteSheetInfo = layoutToSpriteSheetInfo (optionsSpritesheet options) layout
+          let spriteSheetInfo = layoutToSpriteSheetInfo (optionsImage options) layout
           let image = generateImageFromLayout imageMap layout
           BL.writeFile (optionsSpritesheet options) (encodePng image)
           if optionsYaml options
