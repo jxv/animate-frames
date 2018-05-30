@@ -1,16 +1,30 @@
 name: animate-frames
-version: '0.0.0'
+version: '0.0.1'
 github: "jxv/animate-frames"
 license: MIT
 author: "Joe Vargas"
 maintainer: "Joe Vargas"
+description: Convert sprite frames to animate files
+synopsis: Convert sprite frames to animate files
+category: Game
 
 extra-source-files:
 - CHANGELOG.md
 - LICENSE.md
 - package.yaml
 - README.md
-- stack.yaml
+- stack.yam
+- propagada/animate-preview.png
+- propagada/compile-frames.sh
+- propagada/dance_krita.png
+- propagada/dance_render.png
+- propagada/dance.kra
+- propagada/figure.png
+- propagada/figure.yaml
+- propagada/frames.png
+- propagada/wall_krita.png
+- propagada/wall_render.png
+- propagada/wall.kra
 
 ghc-options: -Wall
 
@@ -23,7 +37,7 @@ library:
   dependencies:
   - aeson
   - async
-  - base
+  - base >= 4.5 && <5
   - bytestring
   - animate
   - JuicyPixels

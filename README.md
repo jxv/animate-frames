@@ -23,37 +23,37 @@ This is an example workflow using Krita and animate to create sprites iterativel
 
 ### Krita
 
-[Krita](https://krita.org/en/) is a profesional level drawing and digital painting program.
-It's also open source and works wonderfully with a drawing tablet.
+[Krita](https://krita.org/en/) is a professional level, digital painting program.
+It's also open source and works wonderfully with a wacom drawing tablet.
 Most importantly, it allows for drawing animation with onion skinning.
 
 Here are the example stick figure animations -- walk and dance.
 
 [`walk.kra`](propaganda/walk.kra)
 
-![walk krita](propaganda/walk_krita.png)
+<img alt="walk krita" src="propaganda/walk_krita.png" width="320px" height="200px" />
 
 [`dance.kra`](propaganda/dance.kra)
 
-![dance krita](propaganda/dance_krita.png)
+<img alt="dance krita" src="propaganda/dance_krita.png" width="320px" height="200px" />
 
 ### Generate individual animation frames
 
-In order to represent the animation, each project file will renderer as frames with a postfix'ed number.
+In order to represent the animation, each project file will render as frames with a postfix'ed number.
 
 Don't forget to change the `basename`.
 
-![walk render](propaganda/walk_render.png)
+<img alt="walk render" src="propaganda/walk_render.png" width="210px" height="182px" />
 
-![dance render](propaganda/dance_render.png)
+<img alt="dance render" src="propaganda/dance_render.png" width="210px" height="183px" />
 
 Now, there's a folder with all the frames.
 
-![frames](propaganda/frames.png)
+<img alt="frames" src="propaganda/frames.png" width="384px" height="300px" />
 
 Notice that there are duplicates of frames.
-This is because ech frame implictly attaches a unit of time.
-In this case, each frame lasts for 1/24th second.
+This is because each frame implictly attaches a unit of time.
+In this case, one frame lasts for 1/24th second.
 
 ### Use `animate-frames` for spritesheet and metadata file
 
@@ -137,7 +137,7 @@ All the frames are collapsed into one spritesheet.
 
 [`figure.png`](propaganda/figure.png)
 
-![figure.png](propaganda/figure.png)
+<img alt="figure.png" src="propaganda/figure.png" width="180px" height="264px" />
 
 ### Preview animation
 
@@ -148,7 +148,7 @@ Use [animate-preview](https://github.com/jxv/animate-preview) to preview the gen
 animate-preview --target figure.yaml --image figure.png --high-dpi --watch
 ```
 
-![animate preview](propaganda/animate-preview.png)
+<img alt="animate preview" src="propaganda/animate-preview.png" width="374px" height="396px" />
 
 ### Build into game
 
