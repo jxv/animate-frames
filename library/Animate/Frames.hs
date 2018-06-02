@@ -463,10 +463,10 @@ topDown :: Image a -> [(Int,Int)]
 topDown Image{imageWidth,imageHeight} = [(x,y) | y <- [0..pred imageHeight], x <- [0..pred imageWidth]]
 
 downTop :: Image a -> [(Int, Int)]
-downTop Image{imageWidth,imageHeight} = [(x,y) | y <- reverse [0..pred imageHeight], x <- [0..pred imageWidth]]
+downTop Image{imageWidth,imageHeight} = [(x,y) | y <- [pred imageHeight, pred (pred imageHeight) .. 0], x <- [0..pred imageWidth]]
 
 leftRight :: Image a -> [(Int, Int)]
 leftRight Image{imageWidth,imageHeight} = [(x,y) | x <- [0..pred imageWidth], y <- [0..pred imageHeight]]
 
 rightLeft :: Image a -> [(Int, Int)]
-rightLeft Image{imageWidth,imageHeight} = [(x,y) | x <- reverse [0..pred imageWidth], y <- [0..pred imageHeight]]
+rightLeft Image{imageWidth,imageHeight} = [(x,y) | x <- [pred imageWidth, pred (pred imageWidth) .. 0], y <- [0..pred imageHeight]]
