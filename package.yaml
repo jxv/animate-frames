@@ -1,5 +1,5 @@
 name: animate-frames
-version: '0.0.1'
+version: '0.0.2'
 github: "jxv/animate-frames"
 license: MIT
 author: "Joe Vargas"
@@ -14,17 +14,17 @@ extra-source-files:
 - package.yaml
 - README.md
 - stack.yam
-- propagada/animate-preview.png
-- propagada/compile-frames.sh
-- propagada/dance_krita.png
-- propagada/dance_render.png
-- propagada/dance.kra
-- propagada/figure.png
-- propagada/figure.yaml
-- propagada/frames.png
-- propagada/wall_krita.png
-- propagada/wall_render.png
-- propagada/wall.kra
+- propaganda/animate-preview.png
+- propaganda/compile-frames.sh
+- propaganda/dance_krita.png
+- propaganda/dance_render.png
+- propaganda/dance.kra
+- propaganda/figure.png
+- propaganda/figure.yaml
+- propaganda/frames.png
+- propaganda/walk_krita.png
+- propaganda/walk_render.png
+- propaganda/walk.kra
 
 ghc-options: -Wall
 
@@ -43,11 +43,11 @@ library:
   - JuicyPixels
   - yaml
   - containers
-  - pureMD5
   - safe
   - text
   - vector
   - stm
+  - cryptohash-sha256
   source-dirs: library
 
 executables:

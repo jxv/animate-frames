@@ -2,13 +2,14 @@ module Animate.Frames where
 
 import qualified Data.Map as Map
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString as BS
 import qualified Data.Text.IO as T
 import qualified Data.Text as T
 import qualified Data.Aeson as A
+import qualified Crypto.Hash.SHA256 as SHA256
 import Control.Monad (forM)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Data.Digest.Pure.MD5
 import Text.Printf (printf)
 import Data.Map (Map)
 import Data.Monoid ((<>))
@@ -65,7 +66,7 @@ instance Eq CropImage where
 
 type CropId = Int
 
-newtype ImageId = ImageId MD5Digest
+newtype ImageId = ImageId BS.ByteString
   deriving (Show, Eq, Ord)
 
 data CropFrame = CropFrame
@@ -156,11 +157,11 @@ generateImageFromCropImage images ci = generateImage genPixel w h
 readImageOrFail :: FilePath -> IO (ImageId, Image PixelRGBA8)
 readImageOrFail fp = do
   bytes <- BL.readFile fp
-  let digest = md5 bytes
+  let hashId = SHA256.hash $ BL.toStrict bytes
   let img' = decodeImage (BL.toStrict bytes)
   case img' of
     Left _ -> fail $ "Can't load image: " ++ fp
-    Right img -> return (ImageId digest, convertRGBA8 img)
+    Right img -> return (ImageId hashId, convertRGBA8 img)
 
 layoutToSpriteSheetInfo :: FilePath -> Layout -> SpriteSheetInfo String Seconds
 layoutToSpriteSheetInfo fp layout = SpriteSheetInfo
