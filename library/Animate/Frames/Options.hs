@@ -14,7 +14,7 @@ getOptions = do
 printUsage :: IO ()
 printUsage = do
     putStrLn "Usage:"
-    putStrLn "  animate-frames [--animation <key> <frame0.png> <frame1.png> ...] [--image <spritesheet.png>] [--metadata <target.json>] [--fps <int>] [--yaml]"
+    putStrLn "  animate-frames  --animation <key> <frame0.png> <frame1.png> <...> --image <spritesheet.png> --spritesheet <spritesheet.png> --metadata <metadata.json> [--fps <int>] [--yaml]"
     putStrLn ""
     putStrLn "Example:"
     putStrLn $ intercalate "\n"
